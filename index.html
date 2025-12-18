@@ -1,191 +1,172 @@
 <!DOCTYPE html>
 <html lang="vi">
 <head>
-<meta charset="UTF-8" />
-<title>FPS Viewer - One File</title>
+<meta charset="UTF-8">
+<title>FPS Viewer – FIX BLACK SCREEN</title>
 <style>
 html, body {
     margin: 0;
     padding: 0;
     overflow: hidden;
-    background: #333;
+    background: #2b2b2b;
 }
 canvas {
     display: block;
-    width: 100vw;
-    height: 100vh;
 }
 #info {
     position: fixed;
     top: 10px;
     left: 50%;
     transform: translateX(-50%);
-    color: white;
     background: rgba(0,0,0,0.6);
+    color: white;
     padding: 8px 14px;
     border-radius: 6px;
-    font-family: Arial, sans-serif;
-    font-size: 14px;
+    font-family: Arial;
     z-index: 10;
 }
 </style>
 </head>
 <body>
 
-<div id="info">
-Click để vào chế độ FPS — WASD: di chuyển | Q/E: lên xuống | ESC: thoát
-</div>
-
+<div id="info">Click để vào FPS — WASD | Q/E | ESC</div>
 <canvas id="c"></canvas>
 
-<!-- THREE.JS CDN (NON-MODULE) -->
+<!-- THREE CDN (NON MODULE – GH PAGES SAFE) -->
 <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
 <script src="https://unpkg.com/three@0.160.0/examples/js/controls/PointerLockControls.js"></script>
 <script src="https://unpkg.com/three@0.160.0/examples/js/loaders/GLTFLoader.js"></script>
 
 <script>
-/* ===== DEBUG-FRIENDLY FPS VIEWER (one-file) ===== */
+/* ================= BASIC ================= */
 const canvas = document.getElementById('c');
 const info = document.getElementById('info');
 
-/* WebGL availability check */
-if (!window.WebGLRenderingContext) {
-    info.innerText = "Trình duyệt/cạc đồ họa không hỗ trợ WebGL.";
-    throw new Error("NO_WEBGL");
-}
-
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x333333);
+scene.background = new THREE.Color(0x2b2b2b);
 
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-// đặt xa hơn một chút để tránh lọt vào trong model
-camera.position.set(0, 2, 8);
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 2000);
+// 👉 QUAN TRỌNG: đặt camera RA NGOÀI model
+camera.position.set(0, 3, 12);
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(window.devicePixelRatio);
-// đảm bảo clear color khớp background (tránh thấy đen nếu scene.background không được áp dụng)
-renderer.setClearColor(0x333333);
 
-/* LIGHT */
-scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-const dir = new THREE.DirectionalLight(0xffffff, 1.4);
-dir.position.set(5, 10, 5);
+/* ================= LIGHT (MẠNH) ================= */
+scene.add(new THREE.AmbientLight(0xffffff, 1.2));
+
+const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2);
+hemi.position.set(0, 50, 0);
+scene.add(hemi);
+
+const dir = new THREE.DirectionalLight(0xffffff, 2.5);
+dir.position.set(10, 20, 10);
 scene.add(dir);
-scene.add(new THREE.GridHelper(50, 50));
 
-// thêm axes helper và 1 hộp debug để chắc chắn renderer đang hoạt động
-const axes = new THREE.AxesHelper(2);
-scene.add(axes);
-
-const debugBox = new THREE.Mesh(
-    new THREE.BoxGeometry(1,1,1),
-    new THREE.MeshStandardMaterial({ color: 0x8888ff, metalness: 0.2, roughness: 0.7 })
+/* ================= BLENDER-LIKE FLOOR ================= */
+// plane sàn
+const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(200, 200),
+    new THREE.MeshStandardMaterial({ color: 0x2f2f2f, roughness: 1 })
 );
-debugBox.position.set(0, 0.5, 0);
-scene.add(debugBox);
+floor.rotation.x = -Math.PI / 2;
+scene.add(floor);
 
-/* PointerLock (FPS) */
+// grid giống Blender
+const grid = new THREE.GridHelper(200, 200, 0x888888, 0x444444);
+grid.position.y = 0.001;
+scene.add(grid);
+
+/* ================= DEBUG OBJECT (KHÔNG THẤY CÁI NÀY = WEBGL CHẾT) ================= */
+const debugCube = new THREE.Mesh(
+    new THREE.BoxGeometry(1,1,1),
+    new THREE.MeshStandardMaterial({ color: 0xff4444 })
+);
+debugCube.position.set(0, 1, 0);
+scene.add(debugCube);
+
+/* ================= FPS CONTROLS ================= */
 const controls = new THREE.PointerLockControls(camera, document.body);
 canvas.addEventListener('click', () => controls.lock());
+
 document.addEventListener('pointerlockchange', () => {
-    info.innerText = document.pointerLockElement ? "FPS MODE — WASD | Q/E | ESC" : "Click để vào chế độ FPS — WASD | Q/E";
+    info.innerText = document.pointerLockElement
+        ? "FPS MODE — WASD | Q/E | ESC"
+        : "Click để vào FPS — WASD | Q/E";
 });
 
-/* MOVEMENT */
+/* ================= MOVEMENT ================= */
 const keys = {};
 document.addEventListener('keydown', e => keys[e.code] = true);
 document.addEventListener('keyup', e => keys[e.code] = false);
 
 const velocity = new THREE.Vector3();
-const SPEED = 6;
-const ACCEL = 20;
-const DAMP = 8;
 const clock = new THREE.Clock();
 
-/* GLTF loader with safety: if load fails or model is huge, we keep debug objects visible.
-   Also recenters model so camera không rơi vào trong. */
-const loader = new THREE.GLTFLoader();
-const modelURL = "https://cdn.jsdelivr.net/gh/DUYHOCIT/Phong302@main/phong302.glb";
-
-let modelLoaded = false;
-loader.load(
-    modelURL,
-    gltf => {
-        const model = gltf.scene;
-        // compute bounding box & scale down if quá lớn
-        const box = new THREE.Box3().setFromObject(model);
-        const size = box.getSize(new THREE.Vector3()).length();
-        const center = box.getCenter(new THREE.Vector3());
-
-        // nếu model quá lớn, scale xuống
-        if (size > 20) {
-            const scale = 10 / size;
-            model.scale.setScalar(scale);
-        }
-
-        // recentre model
-        model.position.sub(center);
-        scene.add(model);
-        modelLoaded = true;
-        info.innerText = "Model tải xong — Click để vào FPS";
-        // push camera lùi ra nếu bounding box quá lớn
-        const newBox = new THREE.Box3().setFromObject(model);
-        const newSize = newBox.getSize(new THREE.Vector3()).length();
-        if (newSize > 6) camera.position.set(0, Math.max(2, newSize/4), newSize/1.8);
-    },
-    xhr => {
-        if (xhr.total) info.innerText = "Đang tải model: " + Math.round(xhr.loaded / xhr.total * 100) + "%";
-    },
-    err => {
-        console.error("GLTF LOAD ERROR:", err);
-        info.innerText = "Lỗi tải model — kiểm tra Console (F12). Vẫn hiển thị debug box.";
-        // giữ debug box để bạn biết renderer đang hoạt động
-    }
-);
-
-/* RENDER LOOP */
-function animate() {
-    requestAnimationFrame(animate);
-    const dt = Math.min(0.05, clock.getDelta());
-
-    // movement input local to camera
+function updateMovement(dt) {
     const dir = new THREE.Vector3(
         (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0),
         (keys.KeyE ? 1 : 0) - (keys.KeyQ ? 1 : 0),
         (keys.KeyS ? 1 : 0) - (keys.KeyW ? 1 : 0)
     );
 
-    if (dir.lengthSq() > 0) dir.normalize().multiplyScalar(SPEED);
+    if (dir.lengthSq() > 0) dir.normalize().multiplyScalar(6);
     dir.applyQuaternion(camera.quaternion);
 
-    // velocity smoothing
-    velocity.lerp(dir, ACCEL * dt);
-    velocity.multiplyScalar(1 - DAMP * dt);
-
+    velocity.lerp(dir, 12 * dt);
     camera.position.addScaledVector(velocity, dt);
+}
 
+/* ================= LOAD MODEL ================= */
+const loader = new THREE.GLTFLoader();
+loader.load(
+    "https://cdn.jsdelivr.net/gh/DUYHOCIT/Phong302@main/phong302.glb",
+    gltf => {
+        const model = gltf.scene;
+
+        // bật doubleSide để KHÔNG bị đen khi ở trong phòng
+        model.traverse(o => {
+            if (o.isMesh && o.material) {
+                o.material.side = THREE.DoubleSide;
+                o.material.needsUpdate = true;
+            }
+        });
+
+        // căn giữa model
+        const box = new THREE.Box3().setFromObject(model);
+        const center = box.getCenter(new THREE.Vector3());
+        model.position.sub(center);
+
+        scene.add(model);
+        info.innerText = "Model load xong — Click để FPS";
+    },
+    xhr => {
+        if (xhr.total)
+            info.innerText = "Loading: " + Math.round(xhr.loaded/xhr.total*100) + "%";
+    },
+    err => {
+        console.error(err);
+        info.innerText = "Lỗi load model — mở F12 Console";
+    }
+);
+
+/* ================= LOOP ================= */
+function animate() {
+    requestAnimationFrame(animate);
+    const dt = Math.min(0.05, clock.getDelta());
+    updateMovement(dt);
     renderer.render(scene, camera);
 }
 animate();
 
-/* RESIZE */
+/* ================= RESIZE ================= */
 window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth/window.innerHeight;
+    camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
 });
-
-/* DEBUG HELPERS - quick ways to test if "đen" do model/camera:
-   1) Nhấn `M` sẽ tắt/bật model debug box để xem có khác biệt.
-   2) Nhấn `R` để reset camera ra xa.
-*/
-document.addEventListener('keydown', (e) => {
-    if (e.code === 'KeyM') debugBox.visible = !debugBox.visible;
-    if (e.code === 'KeyR') camera.position.set(0,2,8);
-});
 </script>
-
 
 </body>
 </html>
